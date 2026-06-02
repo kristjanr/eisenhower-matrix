@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Eisenhower Matrix</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #273449;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --q1: #ef4444;
+    --q2: #22c55e;
+    --q3: #f59e0b;
+    --q4: #64748b;
+    --drop: rgba(56,189,248,0.18);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 15px/1.35 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; overscroll-behavior: none; }
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; gap: 8px; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.2px; }
+  header .actions { display: flex; gap: 6px; }
+  button {
+    appearance: none; border: 1px solid #334155; background: var(--panel-2); color: var(--text);
+    padding: 7px 10px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: #0b1220; border-color: var(--accent); font-weight: 600; }
+  button:active { transform: scale(0.97); }
+
+  #input-area { padding: 0 10px 8px; display: flex; flex-direction: column; gap: 6px; }
+  #input-area.collapsed { display: none; }
+  textarea {
+    width: 100%; min-height: 110px; resize: vertical; background: var(--panel); color: var(--text);
+    border: 1px solid #334155; border-radius: 8px; padding: 8px; font: 14px/1.4 -apple-system, system-ui, sans-serif;
+  }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .hint { color: var(--muted); font-size: 11px; }
+
+  #pool {
+    margin: 0 10px 8px; padding: 6px; background: var(--panel); border-radius: 10px; border: 1px solid #334155;
+    min-height: 44px; display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  #pool.empty::before { content: "Unsorted tasks appear here"; color: var(--muted); font-size: 12px; padding: 6px; }
+  #pool .pool-label { width: 100%; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; padding: 2px 4px 0; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 6px;
+    padding: 0 10px 10px;
+  }
+  .quadrant {
+    background: var(--panel); border-radius: 10px; border: 1px solid #334155;
+    padding: 6px; min-height: 160px; display: flex; flex-direction: column;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .quadrant.drop-target { background: var(--drop); border-color: var(--accent); }
+  .quadrant .qhead { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; color: var(--muted); }
+  .quadrant .qhead .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+  .quadrant[data-q="q1"] .dot { background: var(--q1); }
+  .quadrant[data-q="q2"] .dot { background: var(--q2); }
+  .quadrant[data-q="q3"] .dot { background: var(--q3); }
+  .quadrant[data-q="q4"] .dot { background: var(--q4); }
+  .quadrant .qbody { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+
+  .task {
+    background: var(--panel-2); border: 1px solid #3b4a63; color: var(--text);
+    padding: 6px 8px; border-radius: 7px; font-size: 13px; line-height: 1.3;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    display: flex; align-items: flex-start; gap: 6px; word-break: break-word;
+  }
+  .task.in-pool { background: #334155; }
+  .task.dragging { opacity: 0.4; }
+  .task .grip { color: var(--muted); flex: 0 0 auto; font-size: 12px; line-height: 1; padding-top: 2px; }
+  .task .text { flex: 1; }
+  .task .del {
+    background: transparent; border: 0; color: var(--muted); padding: 0 2px; font-size: 16px; line-height: 1; cursor: pointer;
+  }
+
+  #ghost {
+    position: fixed; pointer-events: none; z-index: 9999;
+    background: var(--accent); color: #0b1220; font-weight: 600;
+    padding: 6px 10px; border-radius: 8px; font-size: 13px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4); max-width: 70vw;
+    transform: translate(-50%, -50%);
+    display: none;
+  }
+
+  @media (min-width: 700px) {
+    .grid { grid-template-rows: 220px 220px; }
+    body { max-width: 900px; margin: 0 auto; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Eisenhower Matrix</h1>
+    <div class="actions">
+      <button id="toggle-input">Input</button>
+      <button id="clear-all">Clear</button>
+    </div>
+  </header>
+
+  <section id="input-area">
+    <textarea id="input" placeholder="Paste your todo list — one task per line.&#10;- bullets and numbering are stripped automatically"></textarea>
+    <div class="row">
+      <button class="primary" id="load">Add tasks</button>
+      <span class="hint">Tip: long-press a task to drag it on mobile.</span>
+    </div>
+  </section>
+
+  <div id="pool" class="empty">
+    <div class="pool-label">Unsorted</div>
+  </div>
+
+  <div class="grid">
+    <div class="quadrant" data-q="q1">
+      <div class="qhead"><span class="dot"></span>Urgent · Important · Do</div>
+      <div class="qbody" data-drop="q1"></div>
+    </div>
+    <div class="quadrant" data-q="q2">
+      <div class="qhead"><span class="dot"></span>Not Urgent · Important · Schedule</div>
+      <div class="qbody" data-drop="q2"></div>
+    </div>
+    <div class="quadrant" data-q="q3">
+      <div class="qhead"><span class="dot"></span>Urgent · Not Important · Delegate</div>
+      <div class="qbody" data-drop="q3"></div>
+    </div>
+    <div class="quadrant" data-q="q4">
+      <div class="qhead"><span class="dot"></span>Not Urgent · Not Important · Delete</div>
+      <div class="qbody" data-drop="q4"></div>
+    </div>
+  </div>
+
+  <div id="ghost"></div>
+
+<script>
+(() => {
+  const STORAGE_KEY = "eisenhower.v1";
+  const pool = document.getElementById("pool");
+  const quadrants = {
+    pool,
+    q1: document.querySelector('[data-drop="q1"]'),
+    q2: document.querySelector('[data-drop="q2"]'),
+    q3: document.querySelector('[data-drop="q3"]'),
+    q4: document.querySelector('[data-drop="q4"]'),
+  };
+  const ghost = document.getElementById("ghost");
+
+  /** state: { id, text, zone } */
+  let tasks = load();
+  render();
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return [];
+  }
+  function save() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); } catch {}
+  }
+
+  function uid() { return Math.random().toString(36).slice(2, 10); }
+
+  function parseInput(raw) {
+    return raw.split(/\r?\n/)
+      .map(l => l.replace(/^\s*([-*•·]|\d+[.)])\s+/, "").trim())
+      .filter(Boolean);
+  }
+
+  document.getElementById("load").addEventListener("click", () => {
+    const ta = document.getElementById("input");
+    const lines = parseInput(ta.value);
+    if (!lines.length) return;
+    for (const text of lines) tasks.push({ id: uid(), text, zone: "pool" });
+    ta.value = "";
+    save(); render();
+    document.getElementById("input-area").classList.add("collapsed");
+  });
+
+  document.getElementById("toggle-input").addEventListener("click", () => {
+    document.getElementById("input-area").classList.toggle("collapsed");
+  });
+
+  document.getElementById("clear-all").addEventListener("click", () => {
+    if (!tasks.length) return;
+    if (!confirm("Clear all tasks?")) return;
+    tasks = [];
+    save(); render();
+  });
+
+  // Start collapsed if there are already tasks
+  if (tasks.length) document.getElementById("input-area").classList.add("collapsed");
+
+  function render() {
+    // clear bodies
+    for (const k of Object.keys(quadrants)) {
+      const el = quadrants[k];
+      // pool keeps its label; for quadrants we have qbody with no children
+      if (k === "pool") {
+        [...el.querySelectorAll(".task")].forEach(n => n.remove());
+      } else {
+        el.innerHTML = "";
+      }
+    }
+    for (const t of tasks) {
+      const zone = quadrants[t.zone] ? t.zone : "pool";
+      quadrants[zone].appendChild(renderTask(t));
+    }
+    pool.classList.toggle("empty", !tasks.some(t => t.zone === "pool"));
+  }
+
+  function renderTask(t) {
+    const el = document.createElement("div");
+    el.className = "task" + (t.zone === "pool" ? " in-pool" : "");
+    el.dataset.id = t.id;
+    el.innerHTML = `<span class="grip">⋮⋮</span><span class="text"></span><button class="del" aria-label="Delete">×</button>`;
+    el.querySelector(".text").textContent = t.text;
+    el.querySelector(".del").addEventListener("click", (e) => {
+      e.stopPropagation();
+      tasks = tasks.filter(x => x.id !== t.id);
+      save(); render();
+    });
+    attachDrag(el);
+    return el;
+  }
+
+  // --- Pointer-based drag (works on mouse + touch) ---
+  let drag = null;
+
+  function attachDrag(el) {
+    el.addEventListener("pointerdown", onDown);
+  }
+
+  function onDown(e) {
+    if (e.target.classList.contains("del")) return;
+    const el = e.currentTarget;
+    const id = el.dataset.id;
+    // Only initiate drag on long-press for touch / immediate for mouse
+    const isTouch = e.pointerType === "touch";
+    const startX = e.clientX, startY = e.clientY;
+
+    let started = false;
+    let timer = null;
+
+    const start = () => {
+      started = true;
+      el.setPointerCapture(e.pointerId);
+      el.classList.add("dragging");
+      ghost.textContent = tasks.find(x => x.id === id)?.text || "";
+      ghost.style.display = "block";
+      moveGhost(e.clientX, e.clientY);
+      drag = { id, el, pointerId: e.pointerId };
+      document.body.style.overflow = "hidden";
+    };
+
+    if (isTouch) {
+      timer = setTimeout(start, 180);
+    } else {
+      start();
+    }
+
+    const onMove = (ev) => {
+      if (!started) {
+        // cancel long-press if finger moves before timer
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 8) {
+          clearTimeout(timer);
+          el.removeEventListener("pointermove", onMove);
+          el.removeEventListener("pointerup", onUp);
+          el.removeEventListener("pointercancel", onUp);
+        }
+        return;
+      }
+      ev.preventDefault();
+      moveGhost(ev.clientX, ev.clientY);
+      highlightDrop(ev.clientX, ev.clientY);
+    };
+
+    const onUp = (ev) => {
+      clearTimeout(timer);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+      if (!started) return;
+      el.classList.remove("dragging");
+      const target = findDropAt(ev.clientX, ev.clientY);
+      ghost.style.display = "none";
+      document.body.style.overflow = "";
+      clearHighlights();
+      if (target) {
+        const t = tasks.find(x => x.id === id);
+        if (t) { t.zone = target; save(); render(); }
+      }
+      drag = null;
+    };
+
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+  }
+
+  function moveGhost(x, y) {
+    ghost.style.left = x + "px";
+    ghost.style.top = y + "px";
+  }
+
+  function findDropAt(x, y) {
+    ghost.style.display = "none";
+    const el = document.elementFromPoint(x, y);
+    ghost.style.display = "block";
+    if (!el) return null;
+    const drop = el.closest("[data-drop]");
+    if (drop) return drop.dataset.drop;
+    if (el.closest("#pool")) return "pool";
+    return null;
+  }
+
+  function highlightDrop(x, y) {
+    const zone = findDropAt(x, y);
+    clearHighlights();
+    if (!zone) return;
+    if (zone === "pool") pool.classList.add("drop-target");
+    else document.querySelector(`.quadrant[data-q="${zone}"]`)?.classList.add("drop-target");
+  }
+
+  function clearHighlights() {
+    document.querySelectorAll(".drop-target").forEach(n => n.classList.remove("drop-target"));
+  }
+})();
+</script>
+</body>
+</html>
