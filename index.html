@@ -82,7 +82,8 @@
     position: fixed; pointer-events: none; z-index: 9999;
     background: var(--accent); color: #0b1220; font-weight: 600;
     padding: 6px 10px; border-radius: 8px; font-size: 13px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.4); max-width: 70vw;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     transform: translate(-50%, -50%);
     display: none; transition: background 0.1s, color 0.1s;
   }
@@ -267,6 +268,7 @@
       el.setPointerCapture(e.pointerId);
       el.classList.add("dragging");
       ghost.textContent = tasks.find(x => x.id === id)?.text || "";
+      ghost.style.width = el.getBoundingClientRect().width + "px";
       ghost.style.display = "block";
       moveGhost(e.clientX, e.clientY);
       drag = { id, el, pointerId: e.pointerId };
@@ -315,6 +317,7 @@
       ghost.style.display = "none";
       ghost.style.background = "";
       ghost.style.color = "";
+      ghost.style.width = "";
       document.body.style.overflow = "";
       clearHighlights();
       if (deleting) {
