@@ -159,7 +159,10 @@
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      const data = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(data)) {
+        return data.filter(t => t && typeof t.id === "string" && typeof t.text === "string");
+      }
     } catch {}
     return [];
   }
@@ -177,8 +180,8 @@
         let s = l.trim();
         // strip leading bullet / numbering
         s = s.replace(/^([-*•·–—]|\d+[.)])\s+/, "");
-        // strip leading markdown task brackets like "[ ]" or "[x]"
-        s = s.replace(/^\[[\sxX✓✔·]?\]\s*/, "");
+        // strip leading markdown task brackets like "[ ]", "[x]", "[-]", "[>]"
+        s = s.replace(/^\[[^\]]?\]\s*/, "");
         // strip leading unicode checkbox glyphs
         s = s.replace(/^[☐☑☒◯◉●○•]\s*/, "");
         // a bullet may have preceded the checkbox; sweep once more
@@ -258,6 +261,7 @@
     const startX = e.clientX, startY = e.clientY;
 
     let started = false;
+    let moved = false;
     let timer = null;
 
     let leftTrash = !inTrashZone(e.clientX);
@@ -293,6 +297,7 @@
         return;
       }
       ev.preventDefault();
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 8) moved = true;
       moveGhost(ev.clientX, ev.clientY);
       if (!inTrashZone(ev.clientX)) leftTrash = true;
       if (!inReturnZone(ev.clientX)) leftReturn = true;
@@ -311,22 +316,25 @@
       el.removeEventListener("pointercancel", onUp);
       if (!started) return;
       el.classList.remove("dragging");
-      const deleting = leftTrash && inTrashZone(ev.clientX);
-      const returning = !deleting && leftReturn && inReturnZone(ev.clientX);
-      const ins = (deleting || returning) ? null : findInsert(ev.clientX, ev.clientY);
       ghost.style.display = "none";
       ghost.style.background = "";
       ghost.style.color = "";
       ghost.style.width = "";
       document.body.style.overflow = "";
       clearHighlights();
-      if (deleting) {
-        tasks = tasks.filter(x => x.id !== id);
-        save(); render();
-      } else if (returning) {
-        reorderTask(id, "pool", null);
-      } else if (ins) {
-        reorderTask(id, ins.zone, ins.beforeId);
+      // A press without movement (mouse click / long-press-and-release) is a no-op.
+      if (moved) {
+        const deleting = leftTrash && inTrashZone(ev.clientX);
+        const returning = !deleting && leftReturn && inReturnZone(ev.clientX);
+        const ins = (deleting || returning) ? null : findInsert(ev.clientX, ev.clientY);
+        if (deleting) {
+          tasks = tasks.filter(x => x.id !== id);
+          save(); render();
+        } else if (returning) {
+          reorderTask(id, "pool", null);
+        } else if (ins) {
+          reorderTask(id, ins.zone, ins.beforeId);
+        }
       }
       drag = null;
     };
@@ -357,7 +365,7 @@
           return { zone, beforeId: taskEl.dataset.id };
         }
         let next = taskEl.nextElementSibling;
-        while (next && !next.classList.contains("task")) next = next.nextElementSibling;
+        while (next && !(next.classList.contains("task") && !next.classList.contains("dragging"))) next = next.nextElementSibling;
         return { zone, beforeId: next ? next.dataset.id : null };
       }
     }
