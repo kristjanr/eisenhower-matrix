@@ -99,6 +99,9 @@
     display: none;
   }
 
+  .task.insert-before { border-top-color: var(--accent); border-top-width: 2px; }
+  .task.insert-after  { border-bottom-color: var(--accent); border-bottom-width: 2px; }
+
   @media (min-width: 700px) {
     .grid { grid-template-rows: 220px 220px; }
     body { max-width: 900px; margin: 0 auto; }
@@ -314,7 +317,7 @@
       trashEl.classList.toggle("armed", armTrash);
       returnEl.classList.toggle("armed", armReturn);
       if (armTrash || armReturn) clearHighlights();
-      else highlightDrop(ev.clientX, ev.clientY);
+      else highlightInsert(ev.clientX, ev.clientY);
     };
 
     const onUp = (ev) => {
@@ -326,7 +329,7 @@
       el.classList.remove("dragging");
       const deleting = leftTrash && inTrashZone(ev.clientX);
       const returning = !deleting && leftReturn && inReturnZone(ev.clientX);
-      const target = (deleting || returning) ? null : findDropAt(ev.clientX, ev.clientY);
+      const ins = (deleting || returning) ? null : findInsert(ev.clientX, ev.clientY);
       ghost.style.display = "none";
       trashEl.classList.remove("visible", "armed");
       returnEl.classList.remove("visible", "armed");
@@ -336,11 +339,9 @@
         tasks = tasks.filter(x => x.id !== id);
         save(); render();
       } else if (returning) {
-        const t = tasks.find(x => x.id === id);
-        if (t) { t.zone = "pool"; save(); render(); }
-      } else if (target) {
-        const t = tasks.find(x => x.id === id);
-        if (t) { t.zone = target; save(); render(); }
+        reorderTask(id, "pool", null);
+      } else if (ins) {
+        reorderTask(id, ins.zone, ins.beforeId);
       }
       drag = null;
     };
@@ -355,27 +356,64 @@
     ghost.style.top = y + "px";
   }
 
-  function findDropAt(x, y) {
+  function findInsert(x, y) {
     ghost.style.display = "none";
     const el = document.elementFromPoint(x, y);
     ghost.style.display = "block";
     if (!el) return null;
+
+    const taskEl = el.closest(".task:not(.dragging)");
+    if (taskEl) {
+      const zone = taskEl.closest("[data-drop]")?.dataset.drop
+                   || (taskEl.closest("#pool") ? "pool" : null);
+      if (zone) {
+        const rect = taskEl.getBoundingClientRect();
+        if (y < rect.top + rect.height / 2) {
+          return { zone, beforeId: taskEl.dataset.id };
+        }
+        let next = taskEl.nextElementSibling;
+        while (next && !next.classList.contains("task")) next = next.nextElementSibling;
+        return { zone, beforeId: next ? next.dataset.id : null };
+      }
+    }
+
     const drop = el.closest("[data-drop]");
-    if (drop) return drop.dataset.drop;
-    if (el.closest("#pool")) return "pool";
+    if (drop) return { zone: drop.dataset.drop, beforeId: null };
+    if (el.closest("#pool")) return { zone: "pool", beforeId: null };
     return null;
   }
 
-  function highlightDrop(x, y) {
-    const zone = findDropAt(x, y);
+  function highlightInsert(x, y) {
     clearHighlights();
-    if (!zone) return;
-    if (zone === "pool") pool.classList.add("drop-target");
-    else document.querySelector(`.quadrant[data-q="${zone}"]`)?.classList.add("drop-target");
+    const ins = findInsert(x, y);
+    if (!ins) return;
+    if (ins.beforeId) {
+      document.querySelector(`.task[data-id="${ins.beforeId}"]`)?.classList.add("insert-before");
+    } else {
+      const body = ins.zone === "pool" ? pool : document.querySelector(`[data-drop="${ins.zone}"]`);
+      const last = body?.querySelector(".task:last-of-type");
+      if (last) last.classList.add("insert-after");
+      else (ins.zone === "pool" ? pool : document.querySelector(`.quadrant[data-q="${ins.zone}"]`))?.classList.add("drop-target");
+    }
+  }
+
+  function reorderTask(id, zone, beforeId) {
+    const idx = tasks.findIndex(t => t.id === id);
+    if (idx === -1) return;
+    const [task] = tasks.splice(idx, 1);
+    task.zone = zone;
+    if (beforeId !== null) {
+      const bi = tasks.findIndex(t => t.id === beforeId);
+      tasks.splice(bi !== -1 ? bi : tasks.length, 0, task);
+    } else {
+      tasks.push(task);
+    }
+    save(); render();
   }
 
   function clearHighlights() {
     document.querySelectorAll(".drop-target").forEach(n => n.classList.remove("drop-target"));
+    document.querySelectorAll(".insert-before, .insert-after").forEach(n => n.classList.remove("insert-before", "insert-after"));
   }
 })();
 </script>
