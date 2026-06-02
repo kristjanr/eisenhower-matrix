@@ -31,6 +31,8 @@
   }
   button.primary { background: var(--accent); color: #0b1220; border-color: var(--accent); font-weight: 600; }
   button:active { transform: scale(0.97); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .task:focus-visible { outline-offset: 1px; }
 
   #input-area { padding: 0 10px 8px; display: flex; flex-direction: column; gap: 6px; }
   #input-area.collapsed { display: none; }
@@ -45,7 +47,6 @@
     margin: 0 10px 8px; padding: 6px; background: var(--panel); border-radius: 10px; border: 1px solid #334155;
     min-height: 44px; display: flex; flex-wrap: wrap; gap: 6px;
   }
-  #pool.empty::before { content: "Unsorted tasks appear here"; color: var(--muted); font-size: 12px; padding: 6px; }
   #pool .pool-label { width: 100%; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; padding: 2px 4px 0; }
 
   .grid {
@@ -237,9 +238,51 @@
     const el = document.createElement("div");
     el.className = "task" + (t.zone === "pool" ? " in-pool" : "");
     el.dataset.id = t.id;
+    el.tabIndex = 0;
     el.textContent = t.text;
     attachDrag(el);
+    el.addEventListener("keydown", onTaskKey);
     return el;
+  }
+
+  const ZONE_ORDER = ["pool", "q1", "q2", "q3", "q4"];
+
+  function onTaskKey(e) {
+    const id = e.currentTarget.dataset.id;
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      tasks = tasks.filter(x => x.id !== id);
+      save(); render();
+      return;
+    }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const dir = e.key === "ArrowRight" ? 1 : -1;
+      const zi = ZONE_ORDER.indexOf(t.zone);
+      const next = ZONE_ORDER[(zi + dir + ZONE_ORDER.length) % ZONE_ORDER.length];
+      reorderTask(id, next, null);
+      focusTask(id);
+      return;
+    }
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const dir = e.key === "ArrowDown" ? 1 : -1;
+      const peers = tasks.filter(x => x.zone === t.zone);
+      const pos = peers.findIndex(x => x.id === id);
+      const newPos = pos + dir;
+      if (newPos < 0 || newPos >= peers.length) return;
+      const beforeId = dir > 0 ? (peers[newPos + 1]?.id ?? null) : peers[newPos].id;
+      reorderTask(id, t.zone, beforeId);
+      focusTask(id);
+    }
+  }
+
+  function focusTask(id) {
+    requestAnimationFrame(() => {
+      document.querySelector(`.task[data-id="${id}"]`)?.focus();
+    });
   }
 
   const EDGE_WIDTH = 44;
@@ -350,9 +393,7 @@
   }
 
   function findInsert(x, y) {
-    ghost.style.display = "none";
     const el = document.elementFromPoint(x, y);
-    ghost.style.display = "block";
     if (!el) return null;
 
     const taskEl = el.closest(".task:not(.dragging)");
@@ -361,9 +402,12 @@
                    || (taskEl.closest("#pool") ? "pool" : null);
       if (zone) {
         const rect = taskEl.getBoundingClientRect();
-        if (y < rect.top + rect.height / 2) {
-          return { zone, beforeId: taskEl.dataset.id };
-        }
+        // Pointer vertically inside the row → compare X (handles wrapped pool).
+        // Otherwise compare Y (stacked quadrant tasks above/below).
+        const insertBefore = (y >= rect.top && y <= rect.bottom)
+          ? (x < rect.left + rect.width / 2)
+          : (y < rect.top + rect.height / 2);
+        if (insertBefore) return { zone, beforeId: taskEl.dataset.id };
         let next = taskEl.nextElementSibling;
         while (next && !(next.classList.contains("task") && !next.classList.contains("dragging"))) next = next.nextElementSibling;
         return { zone, beforeId: next ? next.dataset.id : null };
