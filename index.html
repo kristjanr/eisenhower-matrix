@@ -73,15 +73,22 @@
     background: var(--panel-2); border: 1px solid #3b4a63; color: var(--text);
     padding: 5px 7px; border-radius: 6px; font-size: 12px; line-height: 1.25;
     touch-action: none; user-select: none; -webkit-user-select: none;
-    display: flex; align-items: flex-start; gap: 6px; word-break: break-word;
+    word-break: break-word; cursor: grab;
   }
   .task.in-pool { background: #334155; }
-  .task.dragging { opacity: 0.4; }
-  .task .grip { color: var(--muted); flex: 0 0 auto; font-size: 12px; line-height: 1; padding-top: 2px; }
-  .task .text { flex: 1; }
-  .task .del {
-    background: transparent; border: 0; color: var(--muted); padding: 0 2px; font-size: 16px; line-height: 1; cursor: pointer;
+  .task.dragging { opacity: 0.4; cursor: grabbing; }
+
+  .edge-zone {
+    position: fixed; top: 0; bottom: 0; width: 44px;
+    color: #fff; display: none; align-items: center; justify-content: center;
+    font-size: 22px; z-index: 9998; pointer-events: none;
+    transition: width 0.12s, background 0.12s;
   }
+  .edge-zone.visible { display: flex; }
+  #trash { left: 0; background: linear-gradient(90deg, rgba(239,68,68,0.55), rgba(239,68,68,0.05)); }
+  #trash.armed { width: 64px; background: linear-gradient(90deg, rgba(239,68,68,0.95), rgba(239,68,68,0.25)); }
+  #return { right: 0; background: linear-gradient(270deg, rgba(56,189,248,0.55), rgba(56,189,248,0.05)); }
+  #return.armed { width: 64px; background: linear-gradient(270deg, rgba(56,189,248,0.95), rgba(56,189,248,0.25)); }
 
   #ghost {
     position: fixed; pointer-events: none; z-index: 9999;
@@ -111,7 +118,7 @@
     <textarea id="input" placeholder="Paste your todo list — one task per line.&#10;- bullets and numbering are stripped automatically"></textarea>
     <div class="row">
       <button class="primary" id="load">Add tasks</button>
-      <span class="hint">Tip: long-press a task to drag it on mobile.</span>
+      <span class="hint">Long-press to drag · left edge = delete · right edge = back to Unsorted</span>
     </div>
   </section>
 
@@ -139,6 +146,8 @@
   </div>
 
   <div id="ghost"></div>
+  <div id="trash" class="edge-zone" aria-hidden="true">🗑</div>
+  <div id="return" class="edge-zone" aria-hidden="true">↺</div>
 
 <script>
 (() => {
@@ -235,16 +244,16 @@
     const el = document.createElement("div");
     el.className = "task" + (t.zone === "pool" ? " in-pool" : "");
     el.dataset.id = t.id;
-    el.innerHTML = `<span class="grip">⋮⋮</span><span class="text"></span><button class="del" aria-label="Delete">×</button>`;
-    el.querySelector(".text").textContent = t.text;
-    el.querySelector(".del").addEventListener("click", (e) => {
-      e.stopPropagation();
-      tasks = tasks.filter(x => x.id !== t.id);
-      save(); render();
-    });
+    el.textContent = t.text;
     attachDrag(el);
     return el;
   }
+
+  const EDGE_WIDTH = 44;
+  const trashEl = document.getElementById("trash");
+  const returnEl = document.getElementById("return");
+  function inTrashZone(x) { return x <= EDGE_WIDTH + 12; }
+  function inReturnZone(x) { return x >= window.innerWidth - (EDGE_WIDTH + 12); }
 
   // --- Pointer-based drag (works on mouse + touch) ---
   let drag = null;
@@ -254,7 +263,6 @@
   }
 
   function onDown(e) {
-    if (e.target.classList.contains("del")) return;
     const el = e.currentTarget;
     const id = el.dataset.id;
     // Only initiate drag on long-press for touch / immediate for mouse
@@ -264,6 +272,9 @@
     let started = false;
     let timer = null;
 
+    let leftTrash = !inTrashZone(e.clientX);
+    let leftReturn = !inReturnZone(e.clientX);
+
     const start = () => {
       started = true;
       el.setPointerCapture(e.pointerId);
@@ -271,6 +282,8 @@
       ghost.textContent = tasks.find(x => x.id === id)?.text || "";
       ghost.style.display = "block";
       moveGhost(e.clientX, e.clientY);
+      trashEl.classList.add("visible");
+      returnEl.classList.add("visible");
       drag = { id, el, pointerId: e.pointerId };
       document.body.style.overflow = "hidden";
     };
@@ -294,7 +307,14 @@
       }
       ev.preventDefault();
       moveGhost(ev.clientX, ev.clientY);
-      highlightDrop(ev.clientX, ev.clientY);
+      if (!inTrashZone(ev.clientX)) leftTrash = true;
+      if (!inReturnZone(ev.clientX)) leftReturn = true;
+      const armTrash = leftTrash && inTrashZone(ev.clientX);
+      const armReturn = !armTrash && leftReturn && inReturnZone(ev.clientX);
+      trashEl.classList.toggle("armed", armTrash);
+      returnEl.classList.toggle("armed", armReturn);
+      if (armTrash || armReturn) clearHighlights();
+      else highlightDrop(ev.clientX, ev.clientY);
     };
 
     const onUp = (ev) => {
@@ -304,11 +324,21 @@
       el.removeEventListener("pointercancel", onUp);
       if (!started) return;
       el.classList.remove("dragging");
-      const target = findDropAt(ev.clientX, ev.clientY);
+      const deleting = leftTrash && inTrashZone(ev.clientX);
+      const returning = !deleting && leftReturn && inReturnZone(ev.clientX);
+      const target = (deleting || returning) ? null : findDropAt(ev.clientX, ev.clientY);
       ghost.style.display = "none";
+      trashEl.classList.remove("visible", "armed");
+      returnEl.classList.remove("visible", "armed");
       document.body.style.overflow = "";
       clearHighlights();
-      if (target) {
+      if (deleting) {
+        tasks = tasks.filter(x => x.id !== id);
+        save(); render();
+      } else if (returning) {
+        const t = tasks.find(x => x.id === id);
+        if (t) { t.zone = "pool"; save(); render(); }
+      } else if (target) {
         const t = tasks.find(x => x.id === id);
         if (t) { t.zone = target; save(); render(); }
       }
