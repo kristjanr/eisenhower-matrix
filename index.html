@@ -111,7 +111,7 @@
     <textarea id="input" placeholder="Paste your todo list — one task per line.&#10;- bullets and numbering are stripped automatically"></textarea>
     <div class="row">
       <button class="primary" id="load">Add tasks</button>
-      <span class="hint">Long-press to drag · left edge = delete · right edge = back to Unsorted</span>
+      <span class="hint">Long-press to drag · left edge = delete · drop on Unsorted to un-sort</span>
     </div>
   </section>
 
@@ -287,7 +287,6 @@
 
   const EDGE_WIDTH = 44;
   function inTrashZone(x) { return x <= EDGE_WIDTH + 12; }
-  function inReturnZone(x) { return x >= window.innerWidth - (EDGE_WIDTH + 12); }
 
   // --- Pointer-based drag (works on mouse + touch) ---
   let drag = null;
@@ -308,7 +307,6 @@
     let timer = null;
 
     let leftTrash = !inTrashZone(e.clientX);
-    let leftReturn = !inReturnZone(e.clientX);
 
     const start = () => {
       started = true;
@@ -343,12 +341,10 @@
       if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 8) moved = true;
       moveGhost(ev.clientX, ev.clientY);
       if (!inTrashZone(ev.clientX)) leftTrash = true;
-      if (!inReturnZone(ev.clientX)) leftReturn = true;
       const armTrash = leftTrash && inTrashZone(ev.clientX);
-      const armReturn = !armTrash && leftReturn && inReturnZone(ev.clientX);
-      ghost.style.background = armTrash ? "#ef4444" : armReturn ? "#38bdf8" : "";
-      ghost.style.color = armTrash ? "#fff" : armReturn ? "#0b1220" : "";
-      if (armTrash || armReturn) clearHighlights();
+      ghost.style.background = armTrash ? "#ef4444" : "";
+      ghost.style.color = armTrash ? "#fff" : "";
+      if (armTrash) clearHighlights();
       else highlightInsert(ev.clientX, ev.clientY);
     };
 
@@ -368,13 +364,10 @@
       // A press without movement (mouse click / long-press-and-release) is a no-op.
       if (moved) {
         const deleting = leftTrash && inTrashZone(ev.clientX);
-        const returning = !deleting && leftReturn && inReturnZone(ev.clientX);
-        const ins = (deleting || returning) ? null : findInsert(ev.clientX, ev.clientY);
+        const ins = deleting ? null : findInsert(ev.clientX, ev.clientY);
         if (deleting) {
           tasks = tasks.filter(x => x.id !== id);
           save(); render();
-        } else if (returning) {
-          reorderTask(id, "pool", null);
         } else if (ins) {
           reorderTask(id, ins.zone, ins.beforeId);
         }
